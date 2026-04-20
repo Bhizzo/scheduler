@@ -298,15 +298,19 @@ export async function PATCH(
   }
 
   // reject
-  const updated = await db.meeting.update({
-    where: { id },
-    data: {
-      status: MeetingStatus.REJECTED,
-      rejectionReason: parsed.data.reason,
-      reviewedById: user.id,
-      reviewedAt: new Date(),
-    },
-  });
+ if (parsed.data.action !== "reject") {
+  return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+}
+
+const updated = await db.meeting.update({
+  where: { id },
+  data: {
+    status: MeetingStatus.REJECTED,
+    rejectionReason: parsed.data.reason,   // ✅ now narrowed to the reject branch
+    reviewedById: user.id,
+    reviewedAt: new Date(),
+  },
+});
 
   await notifyRejected({
     id: updated.id,
