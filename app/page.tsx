@@ -139,7 +139,7 @@ function Feature({
   title,
   body,
 }: {
-  Icon: React.ComponentType<{ className?: string }>;
+  Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   eyebrow: string;
   title: string;
   body: string;
