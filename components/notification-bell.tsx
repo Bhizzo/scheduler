@@ -18,14 +18,15 @@ type Notification = {
   createdAt: string;
 };
 
-const KIND_ICON: Record<NotificationKind, { Icon: React.ComponentType<{ className?: string }>; tone: string }> = {
-  MEETING_REQUESTED: { Icon: Clock, tone: "text-warn" },
-  MEETING_APPROVED: { Icon: CalendarCheck, tone: "text-accent" },
-  MEETING_APPROVED_RESCHEDULED: { Icon: CalendarCheck, tone: "text-accent" },
-  MEETING_REJECTED: { Icon: X, tone: "text-danger" },
-  MEETING_UPDATED: { Icon: Edit3, tone: "text-ink" },
-  MEETING_CANCELLED_BY_HOST: { Icon: CalendarOff, tone: "text-danger" },
-  MEETING_CANCELLED_BY_GUEST: { Icon: UserX, tone: "text-muted-foreground" },
+const KIND_ICON: Record<NotificationKind, { Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; tone: string }> = {
+  MEETING_REQUESTED:             { Icon: Clock,        tone: "text-warn" },
+  MEETING_APPROVED:              { Icon: CalendarCheck, tone: "text-accent" },
+  MEETING_APPROVED_RESCHEDULED:  { Icon: CalendarCheck, tone: "text-accent" },
+  MEETING_REJECTED:              { Icon: X,            tone: "text-danger" },
+  MEETING_UPDATED:               { Icon: Edit3,        tone: "text-ink" },
+  MEETING_CANCELLED_BY_HOST:     { Icon: CalendarOff,  tone: "text-danger" },
+  MEETING_CANCELLED_BY_GUEST:    { Icon: UserX,        tone: "text-muted-foreground" },
+  MEETING_RESCHEDULE_PROPOSED:   { Icon: Clock,        tone: "text-warn" },
 };
 
 export function NotificationBell() {

@@ -4,7 +4,7 @@ import type { MeetingStatus } from "@prisma/client";
 
 const statusConfig: Record<
   MeetingStatus,
-  { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }
+  { label: string; className: string; Icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }
 > = {
   PENDING: {
     label: "Pending review",
