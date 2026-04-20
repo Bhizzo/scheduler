@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --paper: 40 38% 96%;           /* warm off-white page background */
+    --surface: 0 0% 100%;          /* cards, inputs */
+    --ink: 30 10% 10%;             /* primary text */
+    --muted: 36 16% 94%;           /* subtle surface */
+    --muted-foreground: 30 6% 40%; /* secondary text */
+
+    /* Lines */
+    --line: 30 12% 88%;            /* hairline dividers */
+    --border: 30 10% 82%;          /* stronger borders */
+
+    /* Accent — deep forest green */
+    --accent: 146 32% 18%;
+    --accent-foreground: 40 38% 96%;
+    --accent-soft: 146 24% 92%;
+
+    /* States */
+    --danger: 0 55% 32%;           /* oxblood */
+    --warn: 28 78% 38%;            /* warm amber */
+    --success: 146 32% 18%;        /* same as accent */
+
+    --ring: 146 32% 35%;
+
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    @apply bg-paper text-ink antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  body {
+    /* Subtle paper grain — SVG turbulence baked into a tiny data URL */
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-repeat: repeat;
+  }
+
+  /* Tabular figures for times, durations, counts */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Tiny caps label — used for metadata, section headers */
+  .label-caps {
+    @apply text-[10.5px] uppercase tracking-[0.16em] font-medium text-muted-foreground;
+  }
+
+  /* Hairline underline used on links and tab indicators */
+  .hairline {
+    box-shadow: inset 0 -1px 0 0 hsl(var(--line));
+  }
+
+  /* Distinctive selection color */
+  ::selection {
+    background: hsl(var(--accent) / 0.2);
+    color: hsl(var(--accent));
+  }
+
+  /* Focus rings — subtle but clear */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--paper)), 0 0 0 4px hsl(var(--ring) / 0.4);
+    border-radius: calc(var(--radius) - 2px);
+  }
+}
+
+@layer components {
+  /* Pill-shaped status chip */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium tabular;
+  }
+
+  /* Card with editorial feel */
+  .card-e {
+    @apply bg-surface border border-line rounded-lg;
+  }
+
+  /* Section heading — serif display */
+  .display {
+    @apply font-display font-normal tracking-tight;
+    font-optical-sizing: auto;
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+  }
+}

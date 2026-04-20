@@ -1,0 +1,150 @@
+// Prisma schema for the meeting-scheduler app.
+// Run `npm run db:push` to sync this to your Postgres database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ASSISTANT
+}
+
+enum MeetingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum NotificationKind {
+  MEETING_REQUESTED
+  MEETING_APPROVED
+  MEETING_APPROVED_RESCHEDULED
+  MEETING_REJECTED
+  MEETING_UPDATED
+  MEETING_CANCELLED_BY_HOST
+  MEETING_CANCELLED_BY_GUEST
+  MEETING_RESCHEDULE_PROPOSED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  phone        String    @unique
+  email        String?   @unique
+  name         String
+  passwordHash String
+  role         Role      @default(USER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  meetings          Meeting[] @relation("RequesterMeetings")
+  reviewedMeetings  Meeting[] @relation("ReviewerMeetings")
+  notifications     Notification[]
+
+  @@index([phone])
+}
+
+model Meeting {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation("RequesterMeetings", fields: [userId], references: [id], onDelete: Cascade)
+  subject          String
+  description      String?
+  // Private notes from the assistant — never visible to the guest.
+  internalNotes    String?
+  // Location / meeting link — set by guest or filled in by assistant.
+  location         String?
+  // The time the user asked for
+  requestedStart   DateTime
+  requestedEnd     DateTime
+  // The time that was actually confirmed (may differ if assistant reschedules on approval or edits later)
+  confirmedStart   DateTime?
+  confirmedEnd     DateTime?
+  status           MeetingStatus @default(PENDING)
+  // Priority set by the assistant. 0 = LOW, 1 = NORMAL (default), 2 = HIGH, 3 = URGENT.
+  priority         Int           @default(1)
+  // If a guest proposed a reschedule on an approved meeting, the new requested
+  // times live here; status drops back to PENDING for assistant review.
+  proposedStart    DateTime?
+  proposedEnd      DateTime?
+  rejectionReason  String?
+  reviewedById     String?
+  reviewedBy       User?         @relation("ReviewerMeetings", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  notifications    Notification[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([confirmedStart])
+  @@index([requestedStart])
+}
+
+// In-app notification. The `userId` is the RECIPIENT. The system writes a
+// notification row whenever a relevant event happens (new request, approval,
+// rejection, edit, cancellation). Later SMS/email delivery can read from this
+// table and fan out to channels without changing any calling code.
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       NotificationKind
+  title      String
+  body       String
+  meetingId  String?
+  meeting    Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+// Weekly recurring availability rules (the host's bookable hours).
+// One row per weekday with a start and end time. 0 = Sunday ... 6 = Saturday.
+model AvailabilityRule {
+  id        String   @id @default(cuid())
+  weekday   Int      // 0..6
+  startTime String   // "HH:mm" e.g. "09:00"
+  endTime   String   // "HH:mm" e.g. "17:00"
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([weekday, startTime, endTime])
+}
+
+// One-off blocked dates (holidays, days off, etc).
+model BlockedDate {
+  id        String   @id @default(cuid())
+  date      DateTime @unique @db.Date
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+// Simple key/value settings store. Keys:
+//   default_meeting_minutes   -> "30"
+//   allowed_durations         -> "15,30,45,60,90"
+//   min_lead_time_minutes     -> "120"
+//   max_advance_days          -> "60"   (0 = no max)
+//   slot_increment_minutes    -> "15"
+//   buffer_before_minutes     -> "0"
+//   buffer_after_minutes      -> "0"
+//   max_meetings_per_day      -> "0"    (0 = no cap)
+//   max_meetings_per_week     -> "0"    (0 = no cap)
+//   max_meetings_per_month    -> "0"    (0 = no cap)
+//   timezone                  -> "Africa/Blantyre"
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
