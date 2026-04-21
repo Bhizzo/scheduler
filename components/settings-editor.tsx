@@ -18,6 +18,8 @@ export type SettingsValues = {
   max_meetings_per_day: string;
   max_meetings_per_week: string;
   max_meetings_per_month: string;
+  notification_retention_days: string;
+  max_notifications_per_user: string;
 };
 
 export function SettingsEditor({ initial }: { initial: SettingsValues }) {
@@ -195,6 +197,43 @@ export function SettingsEditor({ initial }: { initial: SettingsValues }) {
             max={600}
           />
           <Suffix>{values.max_meetings_per_month === "0" ? "no cap" : "meetings/month"}</Suffix>
+        </Row>
+      </Section>
+
+      {/* Notifications */}
+      <Section
+        title="Notifications"
+        subtitle="How long to keep notifications and how many to store per user."
+      >
+        <Row
+          label="Retention"
+          hint="Notifications older than this are auto-deleted. 0 = keep forever."
+        >
+          <Input
+            type="number"
+            value={values.notification_retention_days}
+            onChange={(e) => update("notification_retention_days", e.target.value)}
+            className="max-w-[120px] tabular"
+            min={0}
+            max={365}
+          />
+          <Suffix>
+            {values.notification_retention_days === "0" ? "never expire" : "days"}
+          </Suffix>
+        </Row>
+        <Row
+          label="Max per user"
+          hint="Once a user hits this number, the oldest notifications are trimmed."
+        >
+          <Input
+            type="number"
+            value={values.max_notifications_per_user}
+            onChange={(e) => update("max_notifications_per_user", e.target.value)}
+            className="max-w-[120px] tabular"
+            min={10}
+            max={10000}
+          />
+          <Suffix>notifications</Suffix>
         </Row>
       </Section>
 

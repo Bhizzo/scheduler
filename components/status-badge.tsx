@@ -1,10 +1,10 @@
 import { cn } from "@/lib/utils";
-import { Clock, Check, X, CircleSlash } from "lucide-react";
+import { Clock, Check, X, CircleSlash, type LucideIcon } from "lucide-react";
 import type { MeetingStatus } from "@prisma/client";
 
 const statusConfig: Record<
   MeetingStatus,
-  { label: string; className: string; Icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }
+  { label: string; className: string; Icon: LucideIcon }
 > = {
   PENDING: {
     label: "Pending review",

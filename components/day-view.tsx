@@ -16,8 +16,11 @@ import { ChevronLeft, ChevronRight, Clock, MapPin } from "lucide-react";
 import { EditMeetingDialog } from "./edit-meeting-dialog";
 import type { Meeting, User } from "@prisma/client";
 import { PriorityDot } from "./priority-picker";
+import { getTimeStatus } from "@/lib/meeting-time";
 
-type MeetingWithUser = Meeting & { user: Pick<User, "id" | "name" | "phone" | "email"> };
+type MeetingWithUser = Meeting & {
+  user: Pick<User, "id" | "name" | "phone" | "email"> | null;
+};
 
 type ViewMode = "day" | "week";
 
@@ -230,19 +233,32 @@ export function DayView({ meetings }: { meetings: MeetingWithUser[] }) {
 
                   const isCompact = height < 56;
 
+                  const ts = getTimeStatus(start, end, now);
+                  const guestName =
+                    m.user?.name ?? m.guestName ?? "Personal";
+
                   return (
                     <button
                       key={m.id}
                       onClick={() => setEditing(m)}
                       className={cn(
-                        "absolute left-1 right-1 rounded-md border bg-accent/[0.08] border-accent/30 text-left transition-all hover:bg-accent/[0.14] hover:border-accent/50 overflow-hidden p-2 z-10",
-                        mode === "week" && "text-xs p-1.5"
+                        "absolute left-1 right-1 rounded-md border text-left transition-all overflow-hidden p-2 z-10",
+                        mode === "week" && "text-xs p-1.5",
+                        // Styling by time status
+                        ts === "completed" &&
+                          "bg-muted/40 border-line opacity-60 hover:opacity-80",
+                        ts === "in_progress" &&
+                          "bg-danger/[0.08] border-danger/30 hover:bg-danger/[0.14] hover:border-danger/50",
+                        ts === "starting_soon" &&
+                          "bg-warn/[0.08] border-warn/30 hover:bg-warn/[0.14] hover:border-warn/50",
+                        ts === "upcoming" &&
+                          "bg-accent/[0.08] border-accent/30 hover:bg-accent/[0.14] hover:border-accent/50"
                       )}
                       style={{
                         top,
                         height,
                       }}
-                      title={`${m.subject} — ${m.user.name}`}
+                      title={`${m.subject} — ${guestName}`}
                     >
                       <div className="flex items-start gap-1.5 min-w-0">
                         <PriorityDot priority={m.priority ?? 1} className="mt-1 shrink-0" />
@@ -261,7 +277,7 @@ export function DayView({ meetings }: { meetings: MeetingWithUser[] }) {
                           {!isCompact && mode === "day" && (
                             <>
                               <div className="text-[11px] text-ink/80 mt-1 truncate">
-                                {m.user.name}
+                                {guestName}
                               </div>
                               {m.location && (
                                 <div className="text-[10.5px] text-muted-foreground mt-0.5 flex items-center gap-1 truncate">
@@ -270,6 +286,12 @@ export function DayView({ meetings }: { meetings: MeetingWithUser[] }) {
                                 </div>
                               )}
                             </>
+                          )}
+                          {ts === "in_progress" && !isCompact && (
+                            <div className="text-[10px] text-danger mt-1 font-medium uppercase tracking-wider flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-danger animate-pulse" />
+                              Now
+                            </div>
                           )}
                         </div>
                       </div>

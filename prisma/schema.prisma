@@ -52,8 +52,15 @@ model User {
 
 model Meeting {
   id               String        @id @default(cuid())
-  userId           String
-  user             User          @relation("RequesterMeetings", fields: [userId], references: [id], onDelete: Cascade)
+  // When the meeting is associated with a registered user account.
+  // Can be null for meetings the assistant adds with just a name/phone,
+  // or for meetings with no external guest at all (e.g. personal appointments).
+  userId           String?
+  user             User?         @relation("RequesterMeetings", fields: [userId], references: [id], onDelete: SetNull)
+  // Fallback identity fields for meetings without a linked user account.
+  // When userId is set, these are ignored in favor of the User record.
+  guestName        String?
+  guestPhone       String?
   subject          String
   description      String?
   // Private notes from the assistant — never visible to the guest.
@@ -73,6 +80,8 @@ model Meeting {
   // times live here; status drops back to PENDING for assistant review.
   proposedStart    DateTime?
   proposedEnd      DateTime?
+  // Who created the meeting: null/USER = guest self-booked, ASSISTANT = assistant added it directly
+  createdByRole    Role          @default(USER)
   rejectionReason  String?
   reviewedById     String?
   reviewedBy       User?         @relation("ReviewerMeetings", fields: [reviewedById], references: [id], onDelete: SetNull)
@@ -87,6 +96,8 @@ model Meeting {
   @@index([priority])
   @@index([confirmedStart])
   @@index([requestedStart])
+  @@index([status, confirmedStart])
+  @@index([userId, status])
 }
 
 // In-app notification. The `userId` is the RECIPIENT. The system writes a
@@ -142,6 +153,8 @@ model BlockedDate {
 //   max_meetings_per_day      -> "0"    (0 = no cap)
 //   max_meetings_per_week     -> "0"    (0 = no cap)
 //   max_meetings_per_month    -> "0"    (0 = no cap)
+//   notification_retention_days -> "60" (0 = keep forever)
+//   max_notifications_per_user -> "200"
 //   timezone                  -> "Africa/Blantyre"
 model Setting {
   key       String   @id

@@ -3,8 +3,29 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signupSchema } from "@/lib/validation";
 import { Role } from "@prisma/client";
+import {
+  clientIdFromRequest,
+  maybeCleanup,
+  rateLimit,
+} from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
+  maybeCleanup();
+
+  // 5 signup attempts per IP per hour
+  const ip = clientIdFromRequest(req);
+  const limit = rateLimit(`signup:${ip}`, 5, 60 * 60 * 1000);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      {
+        error: `Too many signup attempts. Try again in ${Math.ceil(
+          limit.retryAfterMs / 60000
+        )} minute(s).`,
+      },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)) } }
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();

@@ -25,6 +25,7 @@ export async function DailyBriefing() {
   // Flags worth surfacing for the assistant
   const flags = await Promise.all(
     meetings.map(async (m) => {
+      if (!m.userId) return { id: m.id, firstTimer: false, cancellations: 0 };
       const [total, cancelled] = await Promise.all([
         db.meeting.count({ where: { userId: m.userId } }),
         db.meeting.count({
@@ -33,7 +34,7 @@ export async function DailyBriefing() {
       ]);
       return {
         id: m.id,
-        firstTimer: total === 1, // this is their only meeting ever
+        firstTimer: total === 1,
         cancellations: cancelled,
       };
     })
@@ -115,15 +116,33 @@ export async function DailyBriefing() {
                           {m.subject}
                         </h3>
                       </div>
-                      <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="grid h-5 w-5 place-items-center rounded-full bg-accent/10 text-accent text-[9px] font-medium">
-                            {initials(m.user.name)}
-                          </span>
-                          <span className="text-ink">{m.user.name}</span>
-                        </span>
-                        <span className="tabular text-xs">· {m.user.phone}</span>
-                      </div>
+                      {(() => {
+                        const name = m.user?.name ?? m.guestName;
+                        const phone = m.user?.phone ?? m.guestPhone;
+                        if (!name && !phone) {
+                          return (
+                            <div className="mt-1 text-sm italic text-muted-foreground">
+                              Personal appointment
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="grid h-5 w-5 place-items-center rounded-full bg-accent/10 text-accent text-[9px] font-medium">
+                                {initials(name ?? "")}
+                              </span>
+                              <span className="text-ink">{name ?? "Unnamed guest"}</span>
+                            </span>
+                            {phone && <span className="tabular text-xs">· {phone}</span>}
+                            {!m.user && (m.guestName || m.guestPhone) && (
+                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                                · no account
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 

@@ -57,6 +57,8 @@ async function main() {
     max_meetings_per_day: "0",
     max_meetings_per_week: "0",
     max_meetings_per_month: "0",
+    notification_retention_days: "60",
+    max_notifications_per_user: "200",
     timezone: process.env.APP_TIMEZONE || "Africa/Blantyre",
   };
 

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "./status-badge";
-import { formatDate, formatTime } from "@/lib/utils";
+import { cn, formatDate, formatTime } from "@/lib/utils";
+import { getTimeStatus, TIME_STATUS_META } from "@/lib/meeting-time";
 import type { Meeting, MeetingStatus, User } from "@prisma/client";
 import {
   Calendar,
@@ -42,6 +43,11 @@ export function MeetingCard({
     meeting.requestedStart &&
     meeting.confirmedStart.getTime() !== meeting.requestedStart.getTime();
 
+  const timeStatus =
+    meeting.status === "APPROVED" ? getTimeStatus(start, end) : "upcoming";
+  const timeMeta = TIME_STATUS_META[timeStatus];
+  const isPast = timeStatus === "completed";
+
   async function cancel() {
     if (!confirm("Cancel this meeting request?")) return;
     setCancelling(true);
@@ -51,14 +57,19 @@ export function MeetingCard({
   }
 
   const canCancel =
-    allowCancel && (meeting.status === "PENDING" || meeting.status === "APPROVED");
+    allowCancel && (meeting.status === "PENDING" || meeting.status === "APPROVED") && !isPast;
   const canReschedule =
-    allowReschedule && (meeting.status === "PENDING" || meeting.status === "APPROVED");
+    allowReschedule && (meeting.status === "PENDING" || meeting.status === "APPROVED") && !isPast;
   const showActions = canCancel || canReschedule;
 
   return (
     <>
-      <article className="card-e p-5 md:p-6 transition-all hover:border-border">
+      <article
+        className={cn(
+          "card-e p-5 md:p-6 transition-all hover:border-border",
+          isPast && "opacity-60"
+        )}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h3 className="display text-xl md:text-[22px] text-ink leading-tight truncate">
@@ -72,7 +83,14 @@ export function MeetingCard({
               </p>
             )}
           </div>
-          <StatusBadge status={meeting.status} />
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge status={meeting.status} />
+            {timeMeta && (
+              <span className={cn("chip ring-1 ring-inset", timeMeta.classes)}>
+                {timeMeta.label}
+              </span>
+            )}
+          </div>
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">

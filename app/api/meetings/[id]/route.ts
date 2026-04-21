@@ -8,6 +8,7 @@ import {
 } from "@/lib/validation";
 import {
   autoRejectConflicts,
+  findApprovedOverlap,
   validateBookingRequest,
 } from "@/lib/slots";
 import { MeetingStatus, NotificationKind } from "@prisma/client";
@@ -120,7 +121,7 @@ export async function PATCH(
       id: updated.id,
       subject: updated.subject,
       proposedStart: check.startUtc,
-      user: { name: updated.user.name },
+      user: { name: updated.user?.name ?? "A guest" },
     });
 
     return NextResponse.json({ meeting: updated });
@@ -172,17 +173,15 @@ export async function PATCH(
       return NextResponse.json({ error: "End must be after start." }, { status: 400 });
     }
 
-    const conflict = await db.meeting.findFirst({
-      where: {
-        id: { not: meeting.id },
-        status: MeetingStatus.APPROVED,
-        confirmedStart: { lt: confirmedEnd },
-        confirmedEnd: { gt: confirmedStart },
-      },
+    // Buffer-aware overlap check — excludes this meeting so it doesn't conflict with itself
+    const conflict = await findApprovedOverlap({
+      startUtc: confirmedStart,
+      endUtc: confirmedEnd,
+      excludeId: meeting.id,
     });
     if (conflict) {
       return NextResponse.json(
-        { error: "Another approved meeting already occupies this time." },
+        { error: "Another approved meeting (or its buffer) already occupies this time." },
         { status: 409 }
       );
     }
@@ -208,12 +207,14 @@ export async function PATCH(
       },
     });
 
-    await notifyUpdated({
-      id: updated.id,
-      userId: updated.userId,
-      subject: updated.subject,
-      confirmedStart: updated.confirmedStart!,
-    });
+    if (updated.userId) {
+      await notifyUpdated({
+        id: updated.id,
+        userId: updated.userId,
+        subject: updated.subject,
+        confirmedStart: updated.confirmedStart!,
+      });
+    }
 
     return NextResponse.json({ meeting: updated });
   }
@@ -234,17 +235,15 @@ export async function PATCH(
       ? new Date(parsed.data.confirmedEnd)
       : meeting.requestedEnd;
 
-    const conflict = await db.meeting.findFirst({
-      where: {
-        id: { not: meeting.id },
-        status: MeetingStatus.APPROVED,
-        confirmedStart: { lt: confirmedEnd },
-        confirmedEnd: { gt: confirmedStart },
-      },
+    // Buffer-aware overlap check — catches both strict overlaps and buffer-zone touches
+    const conflict = await findApprovedOverlap({
+      startUtc: confirmedStart,
+      endUtc: confirmedEnd,
+      excludeId: meeting.id,
     });
     if (conflict) {
       return NextResponse.json(
-        { error: "Another approved meeting already occupies this slot." },
+        { error: "Another approved meeting (or its buffer) already occupies this slot." },
         { status: 409 }
       );
     }
@@ -271,13 +270,15 @@ export async function PATCH(
       },
     });
 
-    await notifyApproved({
-      id: updated.id,
-      userId: updated.userId,
-      subject: updated.subject,
-      confirmedStart: updated.confirmedStart!,
-      requestedStart: meeting.requestedStart,
-    });
+    if (updated.userId) {
+      await notifyApproved({
+        id: updated.id,
+        userId: updated.userId,
+        subject: updated.subject,
+        confirmedStart: updated.confirmedStart!,
+        requestedStart: meeting.requestedStart,
+      });
+    }
 
     const rejected = await autoRejectConflicts({
       approvedMeetingId: updated.id,
@@ -285,39 +286,39 @@ export async function PATCH(
       confirmedEnd,
     });
     for (const r of rejected) {
-      await notifyUser({
-        userId: r.userId,
-        kind: NotificationKind.MEETING_REJECTED,
-        title: "Meeting request declined",
-        body: `"${r.subject}" was declined. Reason: This time slot was booked by another request.`,
-        meetingId: r.id,
-      });
+      if (r.userId) {
+        await notifyUser({
+          userId: r.userId,
+          kind: NotificationKind.MEETING_REJECTED,
+          title: "Meeting request declined",
+          body: `"${r.subject}" was declined. Reason: This time slot was booked by another request.`,
+          meetingId: r.id,
+        });
+      }
     }
 
     return NextResponse.json({ meeting: updated, autoRejected: rejected.length });
   }
 
   // reject
- if (parsed.data.action !== "reject") {
-  return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-}
-
-const updated = await db.meeting.update({
-  where: { id },
-  data: {
-    status: MeetingStatus.REJECTED,
-    rejectionReason: parsed.data.reason,   // ✅ now narrowed to the reject branch
-    reviewedById: user.id,
-    reviewedAt: new Date(),
-  },
-});
-
-  await notifyRejected({
-    id: updated.id,
-    userId: updated.userId,
-    subject: updated.subject,
-    rejectionReason: updated.rejectionReason!,
+  const updated = await db.meeting.update({
+    where: { id },
+    data: {
+      status: MeetingStatus.REJECTED,
+      rejectionReason: parsed.data.reason,
+      reviewedById: user.id,
+      reviewedAt: new Date(),
+    },
   });
+
+  if (updated.userId) {
+    await notifyRejected({
+      id: updated.id,
+      userId: updated.userId,
+      subject: updated.subject,
+      rejectionReason: updated.rejectionReason!,
+    });
+  }
 
   return NextResponse.json({ meeting: updated });
 }
@@ -347,17 +348,19 @@ export async function DELETE(
     data: { status: MeetingStatus.CANCELLED },
   });
 
-  if (user.role === "ASSISTANT" && meeting.userId !== user.id) {
+  // Only notify if there's a party on the other end of this cancellation
+  if (user.role === "ASSISTANT" && meeting.userId && meeting.userId !== user.id) {
     await notifyCancelledByHost({
       id: updated.id,
-      userId: updated.userId,
+      userId: updated.userId!,
       subject: updated.subject,
     });
   } else if (user.role === "USER") {
+    // Guest cancelled their own — assistants should know
     await notifyCancelledByGuest({
       id: updated.id,
       subject: updated.subject,
-      user: { name: meeting.user.name },
+      user: { name: meeting.user?.name ?? meeting.guestName ?? "A guest" },
     });
   }
 

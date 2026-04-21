@@ -4,32 +4,57 @@ import { DailyBriefing } from "@/components/daily-briefing";
 import { MeetingStatus } from "@prisma/client";
 
 export default async function AdminPage() {
-  const [meetings, stats] = await Promise.all([
+  const now = new Date();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  // Parallel: counts, stats, and initial page of pending meetings
+  const [
+    pendingCount,
+    approvedActiveCount, // approved with end in the future (for tab count)
+    approvedAllCount,
+    rejectedCount,
+    totalCount,
+    statsApprovedUpcoming,
+    statsDeclined30d,
+    initialMeetings,
+  ] = await Promise.all([
+    db.meeting.count({ where: { status: MeetingStatus.PENDING } }),
+    db.meeting.count({
+      where: { status: MeetingStatus.APPROVED, confirmedEnd: { gt: now } },
+    }),
+    db.meeting.count({ where: { status: MeetingStatus.APPROVED } }),
+    db.meeting.count({ where: { status: MeetingStatus.REJECTED } }),
+    db.meeting.count(),
+    db.meeting.count({
+      where: { status: MeetingStatus.APPROVED, confirmedStart: { gte: now } },
+    }),
+    db.meeting.count({
+      where: {
+        status: MeetingStatus.REJECTED,
+        reviewedAt: { gte: thirtyDaysAgo },
+      },
+    }),
     db.meeting.findMany({
-      orderBy: [{ status: "asc" }, { requestedStart: "asc" }, { createdAt: "desc" }],
+      where: { status: MeetingStatus.PENDING },
+      orderBy: [
+        { priority: "desc" },
+        { requestedStart: "asc" },
+        { createdAt: "desc" },
+      ],
+      take: 50,
       include: {
         user: { select: { id: true, name: true, phone: true, email: true } },
       },
     }),
-    (async () => {
-      const [pending, approvedUpcoming, declinedLast30] = await Promise.all([
-        db.meeting.count({ where: { status: MeetingStatus.PENDING } }),
-        db.meeting.count({
-          where: {
-            status: MeetingStatus.APPROVED,
-            confirmedStart: { gte: new Date() },
-          },
-        }),
-        db.meeting.count({
-          where: {
-            status: MeetingStatus.REJECTED,
-            reviewedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-          },
-        }),
-      ]);
-      return { pending, approvedUpcoming, declinedLast30 };
-    })(),
   ]);
+
+  const counts = {
+    PENDING: pendingCount,
+    // Tab counts show what will appear with the default "hide past" setting
+    APPROVED: approvedActiveCount,
+    REJECTED: rejectedCount,
+    ALL: totalCount,
+  };
 
   return (
     <div className="container py-10 md:py-14">
@@ -50,12 +75,15 @@ export default async function AdminPage() {
 
       {/* Stat band */}
       <div className="grid grid-cols-3 gap-4 md:gap-6 my-8">
-        <Stat label="Awaiting review" value={stats.pending} tone="warn" />
-        <Stat label="Upcoming approved" value={stats.approvedUpcoming} tone="accent" />
-        <Stat label="Declined (30d)" value={stats.declinedLast30} tone="muted" />
+        <Stat label="Awaiting review" value={pendingCount} tone="warn" />
+        <Stat label="Upcoming approved" value={statsApprovedUpcoming} tone="accent" />
+        <Stat label="Declined (30d)" value={statsDeclined30d} tone="muted" />
       </div>
 
-      <AdminMeetingsTable meetings={meetings} />
+      <AdminMeetingsTable
+        initialMeetings={initialMeetings}
+        initialCounts={counts}
+      />
     </div>
   );
 }

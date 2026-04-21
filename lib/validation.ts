@@ -33,6 +33,30 @@ export const bookingSchema = z.object({
   durationMinutes: z.coerce.number().int().min(5).max(480),
 });
 
+// Assistant creating a meeting directly — guest fields optional.
+// Can either pick an existing user (userId), specify a guest by name+phone,
+// or leave both blank (personal appointment / host-only).
+export const assistantCreateSchema = z.object({
+  subject: z.string().trim().min(3, "Subject is required").max(120),
+  description: z.string().trim().max(2000).optional(),
+  location: z.string().trim().max(500).optional(),
+  internalNotes: z.string().trim().max(2000).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
+  time: z.string().regex(/^\d{2}:\d{2}$/, "Invalid time"),
+  durationMinutes: z.coerce.number().int().min(5).max(480),
+  priority: z.coerce.number().int().min(0).max(3).optional(),
+  // Optional guest identification — all three forms supported:
+  userId: z.string().optional(),
+  guestName: z.string().trim().max(80).optional(),
+  guestPhone: z
+    .string()
+    .trim()
+    .regex(/^\+?[1-9]\d{6,14}$/)
+    .transform((v) => (v.startsWith("+") ? v : `+${v}`))
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+});
+
 // 0 = LOW, 1 = NORMAL, 2 = HIGH, 3 = URGENT
 export const prioritySchema = z.coerce.number().int().min(0).max(3);
 
@@ -86,7 +110,6 @@ export const reviewSchema = z.discriminatedUnion("action", [
   setPrioritySchema,
   editConfirmedSchema,
   updateNotesSchema,
-  proposeRescheduleSchema,
 ]);
 
 export const availabilityRuleSchema = z.object({
@@ -107,6 +130,8 @@ export const settingsSchema = z.object({
   max_meetings_per_day: z.coerce.number().int().min(0).max(50),
   max_meetings_per_week: z.coerce.number().int().min(0).max(200),
   max_meetings_per_month: z.coerce.number().int().min(0).max(600),
+  notification_retention_days: z.coerce.number().int().min(0).max(365),
+  max_notifications_per_user: z.coerce.number().int().min(10).max(10000),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

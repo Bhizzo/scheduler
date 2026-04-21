@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CalendarCheck, ShieldCheck, Clock } from "lucide-react";
+import { ArrowRight, CalendarCheck, ShieldCheck, Clock, type LucideIcon } from "lucide-react";
 
 export default function LandingPage() {
   return (
@@ -139,7 +139,7 @@ function Feature({
   title,
   body,
 }: {
-  Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  Icon: LucideIcon;
   eyebrow: string;
   title: string;
   body: string;

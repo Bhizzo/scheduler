@@ -1,13 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDate, formatTime, initials } from "@/lib/utils";
 import { StatusBadge } from "./status-badge";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { ReviewDialog } from "./review-dialog";
 import { EditMeetingDialog } from "./edit-meeting-dialog";
+import { NewMeetingDialog } from "./new-meeting-dialog";
 import { PriorityDot, PriorityPicker } from "./priority-picker";
 import { NotesEditor } from "./notes-editor";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { cn } from "@/lib/utils";
 import type { Meeting, MeetingStatus, User } from "@prisma/client";
 import {
@@ -20,56 +29,118 @@ import {
   MapPin,
   Edit3,
   StickyNote,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  EyeOff,
+  Eye,
+  Loader2,
 } from "lucide-react";
+import { getTimeStatus, TIME_STATUS_META } from "@/lib/meeting-time";
 
-type MeetingWithUser = Meeting & { user: Pick<User, "id" | "name" | "phone" | "email"> };
+type MeetingWithUser = Meeting & {
+  user: Pick<User, "id" | "name" | "phone" | "email"> | null;
+};
 
-const tabs: { key: "ALL" | MeetingStatus; label: string }[] = [
+type TabKey = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
+
+const statusTabs: { key: TabKey; label: string }[] = [
   { key: "PENDING", label: "Pending" },
   { key: "APPROVED", label: "Approved" },
   { key: "REJECTED", label: "Declined" },
   { key: "ALL", label: "All" },
 ];
 
-export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }) {
-  const [tab, setTab] = useState<"ALL" | MeetingStatus>("PENDING");
+/** Resolve display identity for a meeting, whether it has a linked user or just guest fields. */
+function guestIdentity(m: MeetingWithUser): { name: string; phone: string; email?: string | null } | null {
+  if (m.user) return { name: m.user.name, phone: m.user.phone, email: m.user.email };
+  if (m.guestName || m.guestPhone) {
+    return {
+      name: m.guestName ?? "Unnamed guest",
+      phone: m.guestPhone ?? "",
+    };
+  }
+  return null; // personal appointment, no external guest
+}
+
+export function AdminMeetingsTable({
+  initialMeetings,
+  initialCounts,
+}: {
+  initialMeetings: MeetingWithUser[];
+  initialCounts: Record<TabKey, number>;
+}) {
+  // Filter state
+  const [tab, setTab] = useState<TabKey>("PENDING");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [sort, setSort] = useState<string>("priority");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [showPast, setShowPast] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Data state
+  const [meetings, setMeetings] = useState<MeetingWithUser[]>(initialMeetings);
+  const [loading, setLoading] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+
+  // Dialog state
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewMode, setReviewMode] = useState<"approve" | "reject">("approve");
   const [reviewTarget, setReviewTarget] = useState<MeetingWithUser | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MeetingWithUser | null>(null);
+  const [newMeetingOpen, setNewMeetingOpen] = useState(false);
 
-  const counts = useMemo(() => {
-    return {
-      PENDING: meetings.filter((m) => m.status === "PENDING").length,
-      APPROVED: meetings.filter((m) => m.status === "APPROVED").length,
-      REJECTED: meetings.filter((m) => m.status === "REJECTED").length,
-      ALL: meetings.length,
-    } as Record<"ALL" | MeetingStatus, number>;
-  }, [meetings]);
+  // Debounce the search input so we don't hammer the API
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => setSearch(searchInput.trim()), 300);
+  }, [searchInput]);
 
-  const filtered = useMemo(() => {
-    const base = tab === "ALL" ? meetings : meetings.filter((m) => m.status === tab);
-    const copy = [...base];
-    copy.sort((a, b) => {
-      if ((b.priority ?? 1) !== (a.priority ?? 1)) {
-        return (b.priority ?? 1) - (a.priority ?? 1);
-      }
-      if (tab === "APPROVED") {
-        const da = (a.confirmedStart ?? a.requestedStart).getTime();
-        const db = (b.confirmedStart ?? b.requestedStart).getTime();
-        return da - db;
-      }
-      if (tab === "REJECTED") {
-        const da = (a.reviewedAt ?? a.createdAt).getTime();
-        const db = (b.reviewedAt ?? b.createdAt).getTime();
-        return db - da;
-      }
-      return a.requestedStart.getTime() - b.requestedStart.getTime();
-    });
-    return copy;
-  }, [meetings, tab]);
+  // Re-fetch whenever filter state changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (tab !== "ALL") params.set("status", tab);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
+    if (sort) params.set("sort", sort);
+    if (search) params.set("q", search);
+    if (showPast) params.set("past", "1");
+    params.set("limit", "50");
+
+    setLoading(true);
+    fetch(`/api/meetings?${params.toString()}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setMeetings(data.meetings ?? []);
+        setNextCursor(data.nextCursor ?? null);
+      })
+      .catch(() => {
+        // keep prior data
+      })
+      .finally(() => setLoading(false));
+  }, [tab, priorityFilter, sort, search, showPast]);
+
+  async function loadMore() {
+    if (!nextCursor) return;
+    const params = new URLSearchParams();
+    if (tab !== "ALL") params.set("status", tab);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
+    if (sort) params.set("sort", sort);
+    if (search) params.set("q", search);
+    if (showPast) params.set("past", "1");
+    params.set("limit", "50");
+    params.set("cursor", nextCursor);
+
+    setLoading(true);
+    const res = await fetch(`/api/meetings?${params.toString()}`);
+    const data = await res.json();
+    setMeetings((prev) => [...prev, ...(data.meetings ?? [])]);
+    setNextCursor(data.nextCursor ?? null);
+    setLoading(false);
+  }
 
   function openReview(mode: "approve" | "reject", m: MeetingWithUser) {
     setReviewMode(mode);
@@ -82,13 +153,17 @@ export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }
     setEditOpen(true);
   }
 
+  const filtersApplied =
+    priorityFilter !== "all" || sort !== "priority" || search !== "" || showPast;
+
   return (
     <>
-      {/* Tabs */}
-      <div className="border-b border-line">
-        <div className="flex gap-1 -mb-px">
-          {tabs.map((t) => {
+      {/* Header row: tabs + new-meeting button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+        <div className="flex gap-1 -mb-px flex-1 border-b border-line">
+          {statusTabs.map((t) => {
             const active = tab === t.key;
+            const count = initialCounts[t.key];
             return (
               <button
                 key={t.key}
@@ -107,37 +182,130 @@ export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }
                     active ? "bg-ink text-paper" : "bg-muted text-muted-foreground"
                   )}
                 >
-                  {counts[t.key]}
+                  {count}
                 </span>
               </button>
             );
           })}
         </div>
+        <Button variant="accent" size="sm" onClick={() => setNewMeetingOpen(true)}>
+          <Plus className="h-4 w-4" /> New meeting
+        </Button>
       </div>
 
-      {filtered.length === 0 ? (
+      {/* Filter bar */}
+      <div className="flex items-center gap-2 py-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-[360px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            type="search"
+            placeholder="Search subject, guest, location…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+
+        <Button
+          variant={filtersOpen || filtersApplied ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFiltersOpen((v) => !v)}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+          {filtersApplied && (
+            <span className="ml-1 h-1.5 w-1.5 rounded-full bg-accent" aria-label="Filters active" />
+          )}
+        </Button>
+
+        {(tab === "APPROVED" || tab === "ALL") && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPast((v) => !v)}
+            className={showPast ? "border-ink" : undefined}
+          >
+            {showPast ? (
+              <>
+                <Eye className="h-3.5 w-3.5" /> Past shown
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-3.5 w-3.5" /> Hide past
+              </>
+            )}
+          </Button>
+        )}
+
+        {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-auto" />}
+      </div>
+
+      {filtersOpen && (
+        <div className="rounded-lg border border-line bg-muted/20 p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-slide-down">
+          <div className="space-y-1.5">
+            <p className="label-caps">Priority</p>
+            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any priority</SelectItem>
+                <SelectItem value="3">Urgent only</SelectItem>
+                <SelectItem value="2">High only</SelectItem>
+                <SelectItem value="1">Normal only</SelectItem>
+                <SelectItem value="0">Low only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <p className="label-caps">Sort</p>
+            <Select value={sort} onValueChange={setSort}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="priority">Priority (urgent first)</SelectItem>
+                <SelectItem value="date">Meeting date (soonest first)</SelectItem>
+                <SelectItem value="recent">Most recently submitted</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Rows */}
+      {meetings.length === 0 ? (
         <div className="py-20 text-center">
           <CalIcon className="h-5 w-5 text-muted-foreground mx-auto" />
-          <p className="mt-3 text-sm text-muted-foreground">Nothing here.</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {search || filtersApplied ? "Nothing matches these filters." : "Nothing here."}
+          </p>
         </div>
       ) : (
         <ul className="divide-y divide-line">
-          {filtered.map((m) => {
+          {meetings.map((m) => {
             const start = m.confirmedStart ?? m.requestedStart;
             const end = m.confirmedEnd ?? m.requestedEnd;
             const isOpen = expanded === m.id;
+            const identity = guestIdentity(m);
+            const timeStatus =
+              m.status === "APPROVED"
+                ? getTimeStatus(start, end)
+                : "upcoming";
+            const timeMeta = TIME_STATUS_META[timeStatus];
+            const isPast = timeStatus === "completed";
+
             return (
-              <li key={m.id} className="group">
+              <li key={m.id} className={cn("group", isPast && "opacity-60")}>
                 <button
                   onClick={() => setExpanded(isOpen ? null : m.id)}
                   className="w-full text-left py-4 grid grid-cols-[auto_auto_1fr_auto] md:grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-3 md:gap-4 hover:bg-muted/30 px-3 md:px-4 -mx-3 md:-mx-4 rounded-md transition-colors"
                 >
                   <PriorityDot priority={m.priority ?? 1} />
                   <div className="grid h-10 w-10 place-items-center rounded-full bg-accent/10 text-accent text-xs font-medium tabular">
-                    {initials(m.user.name)}
+                    {identity ? initials(identity.name) : "·"}
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <span className="text-ink font-medium truncate">{m.subject}</span>
                       {m.internalNotes && (
                         <StickyNote
@@ -145,9 +313,31 @@ export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }
                           aria-label="Has internal notes"
                         />
                       )}
+                      {timeMeta && (
+                        <span className={cn("chip ring-1 ring-inset", timeMeta.classes)}>
+                          {timeMeta.label}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-                      <span>{m.user.name} · <span className="tabular">{m.user.phone}</span></span>
+                      {identity ? (
+                        <span>
+                          {identity.name}
+                          {identity.phone && (
+                            <>
+                              {" "}
+                              · <span className="tabular">{identity.phone}</span>
+                            </>
+                          )}
+                          {!m.user && (m.guestName || m.guestPhone) && (
+                            <span className="ml-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                              · no account
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="italic">Personal appointment</span>
+                      )}
                       {m.location && (
                         <span className="hidden lg:inline-flex items-center gap-1 text-muted-foreground/70 truncate max-w-[180px]">
                           <MapPin className="h-3 w-3" />
@@ -236,26 +426,39 @@ export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }
                           </div>
                         </div>
 
-                        <div>
-                          <p className="label-caps">Requester</p>
-                          <p className="mt-1 text-sm text-ink">{m.user.name}</p>
-                          <a
-                            href={`tel:${m.user.phone}`}
-                            className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-ink tabular"
-                          >
-                            <Phone className="h-3 w-3" />
-                            {m.user.phone}
-                          </a>
-                          {m.user.email && (
-                            <a
-                              href={`mailto:${m.user.email}`}
-                              className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-ink"
-                            >
-                              <Mail className="h-3 w-3" />
-                              {m.user.email}
-                            </a>
-                          )}
-                        </div>
+                        {identity ? (
+                          <div>
+                            <p className="label-caps">
+                              {m.user ? "Requester" : "Guest (no account)"}
+                            </p>
+                            <p className="mt-1 text-sm text-ink">{identity.name}</p>
+                            {identity.phone && (
+                              <a
+                                href={`tel:${identity.phone}`}
+                                className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-ink tabular"
+                              >
+                                <Phone className="h-3 w-3" />
+                                {identity.phone}
+                              </a>
+                            )}
+                            {identity.email && (
+                              <a
+                                href={`mailto:${identity.email}`}
+                                className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-ink"
+                              >
+                                <Mail className="h-3 w-3" />
+                                {identity.email}
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="label-caps">Guest</p>
+                            <p className="mt-1 text-sm italic text-muted-foreground">
+                              Personal appointment — no external guest
+                            </p>
+                          </div>
+                        )}
 
                         {m.status === "PENDING" && (
                           <div className="pt-3 border-t border-line space-y-2">
@@ -300,17 +503,26 @@ export function AdminMeetingsTable({ meetings }: { meetings: MeetingWithUser[] }
         </ul>
       )}
 
+      {nextCursor && (
+        <div className="flex justify-center py-6">
+          <Button variant="outline" onClick={loadMore} disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Load more"}
+          </Button>
+        </div>
+      )}
+
       <ReviewDialog
-        meeting={reviewTarget}
+        meeting={reviewTarget as any}
         mode={reviewMode}
         open={reviewOpen}
         onOpenChange={setReviewOpen}
       />
       <EditMeetingDialog
-        meeting={editTarget}
+        meeting={editTarget as any}
         open={editOpen}
         onOpenChange={setEditOpen}
       />
+      <NewMeetingDialog open={newMeetingOpen} onOpenChange={setNewMeetingOpen} />
     </>
   );
 }

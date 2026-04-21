@@ -322,6 +322,40 @@ export async function validateBookingRequest(opts: {
 }
 
 /**
+ * Check whether a proposed time window (startUtc–endUtc) conflicts with any
+ * other approved meeting, taking the configured buffer-before/after into
+ * account. Pass `excludeId` to ignore one specific meeting (used when editing
+ * an already-approved meeting — it shouldn't conflict with itself).
+ *
+ * Returns the first conflicting meeting's id, or null if the slot is clear.
+ */
+export async function findApprovedOverlap(opts: {
+  startUtc: Date;
+  endUtc: Date;
+  excludeId?: string;
+}): Promise<{ id: string; confirmedStart: Date | null; confirmedEnd: Date | null } | null> {
+  const { startUtc, endUtc, excludeId } = opts;
+  const settings = await getSettings();
+  const bufferBefore = settings.bufferBeforeMinutes;
+  const bufferAfter = settings.bufferAfterMinutes;
+
+  // Expand the proposed window by the buffer on each side so that any approved
+  // meeting touching the buffer zone counts as a conflict.
+  const expandedStart = addMinutes(startUtc, -bufferBefore);
+  const expandedEnd = addMinutes(endUtc, bufferAfter);
+
+  return db.meeting.findFirst({
+    where: {
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      status: MeetingStatus.APPROVED,
+      confirmedStart: { lt: expandedEnd },
+      confirmedEnd: { gt: expandedStart },
+    },
+    select: { id: true, confirmedStart: true, confirmedEnd: true },
+  });
+}
+
+/**
  * When a meeting is approved, auto-reject any other PENDING meetings whose
  * requested window overlaps the newly approved confirmed window.
  */
@@ -339,7 +373,7 @@ export async function autoRejectConflicts(opts: {
       requestedEnd: { gt: confirmedStart },
     },
   });
-  if (conflicts.length === 0) return [] as { id: string; userId: string; subject: string }[];
+  if (conflicts.length === 0) return [] as { id: string; userId: string | null; subject: string }[];
   const ids = conflicts.map((c) => c.id);
   await db.meeting.updateMany({
     where: { id: { in: ids } },

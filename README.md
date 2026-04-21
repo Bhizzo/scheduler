@@ -1,37 +1,54 @@
 # Scheduler
 
-A calm meeting scheduling tool. Guests request time with a phone-based account; an assistant reviews every request from a single dashboard, approves / reschedules / declines with reason, can edit approved meetings after the fact, sees the full day laid out visually, and gets live in-app notifications for every event.
+A calm meeting scheduling tool for a single host and their assistant.
+
+- **Guests** sign up with a phone number and optional email, request meetings, propose reschedules, cancel their own requests, and see clear status updates.
+- **The assistant** lives in `/admin`: a daily briefing of today's meetings, a searchable & sortable inbox with priority filtering, a visual day/week schedule, the ability to add meetings directly (with or without a guest), edit approved meetings, and full control over availability and booking rules.
 
 Built with Next.js 15 (App Router), TypeScript, Prisma + PostgreSQL, NextAuth, Tailwind.
 
+---
+
 ## What's inside
 
-**Two roles, one app.** Guests (role `USER`) sign up with a phone number and optional email, then request meetings. The assistant (`ASSISTANT`) has `/admin` with the full inbox, the visual schedule, availability, and settings.
+**Two roles, one app.** Guests (`USER`) use `/dashboard` and `/book`. The assistant (`ASSISTANT`) gets `/admin`, `/admin/schedule`, `/admin/availability`, `/admin/settings`.
 
-**Booking rules that hold.** A request only blocks a slot once it's **approved** — multiple people can have pending requests for the same time. When the assistant approves one, any overlapping pending requests are auto-declined with a clear reason. The slot engine (`lib/slots.ts`) checks weekly availability rules, blocked dates, minimum lead time, the daily meeting cap, and existing approved meetings.
+**Booking rules that hold.** A request only blocks a slot once it's **approved** — multiple people can have pending requests for the same time. When the assistant approves one, overlapping pending requests are auto-declined with a clear reason. Every booking is checked against: weekly hours, blocked dates, minimum lead time, maximum advance window, buffer-before/after, daily/weekly/monthly caps, and existing approved meetings.
 
-**Reschedule is part of approval — and editing is separate.** The data model stores both `requestedStart/End` (what the guest asked for) and `confirmedStart/End` (what got booked). The assistant can approve at a different time in one action, and can also edit an already-approved meeting later (change date, time, location, subject, description, or cancel outright).
+**Assistant can create meetings directly.** One click from the admin inbox opens a form. Three guest modes: pick an **existing user**, enter a **new person** (name + phone, stored on the meeting without creating an account), or **no guest** (personal appointment). Directly approved, guest notified if linked.
 
-**Visual schedule view.** `/admin/schedule` shows the day or week with time down the left and approved meetings as blocks. A red "now" indicator crosses the current time. Click any block to edit. Each block shows the priority dot, subject, time, guest name, and location.
+**Reschedule is part of approval — and editing is separate.** The data model stores both `requestedStart/End` (what the guest asked for) and `confirmedStart/End` (what got booked). The assistant can approve at a different time in one action, and edit an already-approved meeting any time (date, time, location, subject, description, internal notes, or cancel outright).
 
-**Priority on every meeting.** Assistant-only. Four levels (Low / Normal / High / Urgent) with colored dots. Pending requests auto-sort urgent-first.
+**Guests can propose reschedules.** Instead of cancelling an approved meeting to re-request, guests open a "Propose new time" dialog. The meeting drops back to PENDING with the new proposed time; the assistant gets a notification and reviews.
 
-**In-app notifications.** A bell in the top nav polls for unread count every 30 seconds. Assistants get notified on new requests and guest cancellations; guests get notified on approval (plain or rescheduled), rejection with reason, host-side edits, and host cancellations. All routed through `lib/notifications.ts` — one call site, so SMS/email can be bolted on later without touching the API routes.
+**Visual schedule.** `/admin/schedule` shows the day or week with time down the left and approved meetings as colored blocks. Red "now" indicator crosses the current time. Block colors reflect time status — amber "starting soon", red "in progress", muted grey "completed". Click any block to edit.
 
-**Location / meeting link field.** Optional on the booking form, editable by the assistant on approval and after. Displays as a pin on meeting cards, admin rows, and schedule blocks.
+**Priority on every meeting.** Assistant-only. Four levels (Low / Normal / High / Urgent) with colored dots. Pending requests auto-sort urgent-first; can also sort by date or recency.
 
-**Guest-side cancellation.** Guests can cancel their own pending requests. Assistants get a notification when they do.
+**Filter, sort, search.** Admin inbox has a collapsible filter bar: priority filter, sort order (priority / soonest date / most recent), and free-text search across subject, guest name, phone, and location. Debounced 300ms.
 
-**Daily meeting cap.** Configurable (0 = no cap). The slot engine stops offering times on any day where the cap has been hit. Prevents back-to-back overload.
+**Past meetings hidden by default.** Approved meetings that have already ended are dimmed and hidden from the default admin view — a "Hide past" / "Past shown" toggle flips it. Every meeting shows a time-status pill: *Starting soon* (within 30 min), *In progress* (happening now), *Completed* (already ended).
 
-**Timezone-aware.** Availability rules are stored as local `HH:mm` + configured timezone (default `Africa/Blantyre`); all meeting times are stored as UTC.
+**In-app notifications.** Bell in the top nav polls every 30 seconds. Assistants get pinged on new requests, guest cancellations, guest-proposed reschedules. Guests get pinged on approval (plain or rescheduled), rejection with reason, host edits, host cancellations. All flow through `lib/notifications.ts` — one call site, ready for SMS/email.
+
+**Daily briefing** at the top of `/admin`. Today's meetings in chronological order, with "Now" indicator, location, internal notes highlighted, and flags like *"First meeting"* or *"3 past cancellations"* computed from each guest's history.
+
+**Location / meeting link field.** Optional on the booking form, editable by the assistant on approval and after.
+
+**Internal assistant notes.** A private textarea on every meeting. Inline editor in the expanded admin row. Never sent to guests — scrubbed from the API response for non-assistants.
+
+**Timezone-aware.** Availability rules are stored as local `HH:mm` + configured timezone (default `Africa/Blantyre`); all meeting times stored as UTC.
+
+**Scalability basics.** Cursor-pagination on the meetings API (50/page + "Load more"). Server-side filter/sort/search. Debounced search input. Auto-cleanup of notifications older than 60 days (amortized, no cron needed). Signup rate-limited to 5/hour per IP. Compound index on `(status, confirmedStart)` for fast schedule queries.
+
+---
 
 ## Getting started
 
 ### 1. Prerequisites
 
 - Node.js 18.17+ (or 20+)
-- A PostgreSQL database (local or managed — Neon, Supabase, Railway)
+- PostgreSQL (local or Neon, Supabase, Railway, etc.)
 
 ### 2. Install
 
@@ -51,7 +68,7 @@ Generate a NextAuth secret:
 openssl rand -base64 32
 ```
 
-Paste as `NEXTAUTH_SECRET`. Update `DATABASE_URL`. Change `SEED_ASSISTANT_*` values if you want custom credentials for the first assistant account.
+Paste as `NEXTAUTH_SECRET`. Update `DATABASE_URL`. Customize `SEED_ASSISTANT_*` for your first assistant account.
 
 ### 4. Initialize the database
 
@@ -59,8 +76,6 @@ Paste as `NEXTAUTH_SECRET`. Update `DATABASE_URL`. Change `SEED_ASSISTANT_*` val
 npm run db:push    # creates tables from prisma/schema.prisma
 npm run db:seed    # creates the first assistant + default availability + settings
 ```
-
-The seed prints the assistant login. Save it.
 
 ### 5. Run
 
@@ -70,81 +85,69 @@ npm run dev
 
 Open http://localhost:3000 — "Create account" for a guest, or sign in as the assistant.
 
+---
+
 ## Project structure
 
 ```
 app/
-  (auth)/              login, signup, split-hero layout
-  (user)/              my meetings + booking flow
-  (admin)/             assistant area — requests, schedule, availability, settings
+  (auth)/                      login, signup
+  (user)/                      dashboard, book
+  (admin)/                     requests + briefing, schedule, availability, settings
   api/
-    auth/              NextAuth handler
-    meetings/          list, create, get, review (approve/reject), edit, setPriority, cancel
-    notifications/     list, mark-all-read, mark-one-read
-    slots/             available times for a date + duration
-    availability/      rules + blocked dates
-    settings/          app-wide booking rules
-    signup/            account creation
+    auth/[...nextauth]
+    signup                     (rate-limited)
+    meetings                   (GET: filter/sort/search/paginate. POST: guest book + assistant create)
+    meetings/[id]              (approve/reject/setPriority/editConfirmed/updateNotes/proposeReschedule/cancel)
+    slots
+    availability
+    settings
+    notifications, notifications/[id]
+    users                      (search — assistant only)
 components/
-  ui/                  headless primitives (button, input, dialog, select, …)
-  top-nav              with notification bell
-  booking-form         4-step guest flow
-  admin-meetings-table rich inbox with expand + review + edit
-  day-view             time-axis schedule
-  edit-meeting-dialog  edit or cancel an approved meeting
-  review-dialog        approve (optional reschedule + location) or reject
-  notification-bell    polls unread, dropdown list
-  meeting-card         guest-facing card with status + location
-  priority-picker      colored-dot priority selector
-  availability-editor  weekly hours + blocked dates
-  settings-editor      daily cap + durations + lead time + increment
+  ui/                          button, input, label, textarea, select, dialog
+  top-nav, logo, providers, status-badge
+  booking-form, meeting-card, reschedule-dialog
+  admin-meetings-table         (filter bar, pagination, client-side fetch)
+  new-meeting-dialog           (assistant direct-create with three guest modes)
+  review-dialog, edit-meeting-dialog
+  priority-picker, notes-editor, notification-bell
+  day-view, daily-briefing
+  availability-editor, settings-editor
 lib/
-  db                   Prisma client singleton
-  auth                 NextAuth config (phone + password)
-  slots                availability engine + daily cap + auto-reject
-  validation           all Zod schemas
-  notifications        one call site for every notification
-  utils                cn, date formatting, phone normalizing, initials
+  db, auth, slots, validation, notifications, utils
+  meeting-time                 (upcoming / starting_soon / in_progress / completed)
+  rate-limit                   (in-memory; replace with Redis in prod)
 prisma/
-  schema.prisma        User, Meeting, Notification, AvailabilityRule, BlockedDate, Setting
-  seed.ts              first assistant + defaults
-middleware.ts          route protection (leaves /api/* alone)
+  schema.prisma, seed.ts
+middleware.ts
 ```
 
-## Customizing
+---
 
-**Design tokens** in `app/globals.css` as CSS variables — warm paper background, forest-green accent, status colors. Change a few values and the whole app shifts.
+## All configurable settings (at `/admin/settings`)
 
-**Fonts** — Fraunces (display serif) + Geist (sans + mono) in `app/layout.tsx`.
+**Meeting lengths:** default length · allowed durations · slot granularity
 
-**Booking rules** (default length, allowed durations, lead time, slot granularity, daily cap) — `/admin/settings`.
+**Booking window:** minimum lead time · maximum advance days (0 = no limit)
 
-**Availability** (weekly hours, blocked dates) — `/admin/availability`.
+**Buffers around meetings:** buffer before · buffer after
 
-## Common commands
+**Meeting caps:** per day · per week · per month (0 = no cap)
 
-```bash
-npm run dev         # local dev
-npm run build       # production build
-npm start           # run production build
-npm run db:push     # push schema changes
-npm run db:migrate  # create a migration
-npm run db:seed     # re-seed (safe — uses upsert)
-npm run db:studio   # browse the DB
-```
+Plus weekly hours and blocked dates at `/admin/availability`.
+
+---
 
 ## Wiring SMS or email later
 
-Every notification already gets written to the `Notification` table via `lib/notifications.ts`. To add SMS or email delivery, modify `notifyUser` and `notifyAssistants` in that file: after the `db.notification.create`, look up the recipient's phone/email and send through your provider. No calling code changes.
-
-For Malawi, Africa's Talking is much cheaper than Twilio for SMS.
+Every notification is written to the `Notification` table via `lib/notifications.ts`. To add SMS (Africa's Talking recommended in Malawi, cheaper than Twilio) or email, modify `notifyUser` and `notifyAssistants` in that file: after the `db.notification.create`, look up the recipient's phone or email and send via your provider. No other code changes.
 
 ## Things left for later
 
-- Phone OTP login (currently phone + password) — swap the Credentials provider in `lib/auth.ts`
-- Multi-host calendars — schema assumes one host; would need a `hosts` table and host selector on booking
-- iCal export so the host's Google/Outlook calendar mirrors approved meetings
-- Search ("find my meetings with Grace last month")
+- Phone OTP login (currently phone + password)
+- Multi-host calendars (schema assumes one host)
+- iCal / Google Calendar sync
 - Meeting types with per-type availability
 
 ## License

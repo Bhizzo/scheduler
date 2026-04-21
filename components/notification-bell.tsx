@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Check, Clock, CalendarCheck, X, Edit3, CalendarOff, UserX } from "lucide-react";
+import { Bell, Check, Clock, CalendarCheck, X, Edit3, CalendarOff, UserX, CalendarClock, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import type { NotificationKind } from "@prisma/client";
@@ -18,15 +18,15 @@ type Notification = {
   createdAt: string;
 };
 
-const KIND_ICON: Record<NotificationKind, { Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; tone: string }> = {
-  MEETING_REQUESTED:             { Icon: Clock,        tone: "text-warn" },
-  MEETING_APPROVED:              { Icon: CalendarCheck, tone: "text-accent" },
-  MEETING_APPROVED_RESCHEDULED:  { Icon: CalendarCheck, tone: "text-accent" },
-  MEETING_REJECTED:              { Icon: X,            tone: "text-danger" },
-  MEETING_UPDATED:               { Icon: Edit3,        tone: "text-ink" },
-  MEETING_CANCELLED_BY_HOST:     { Icon: CalendarOff,  tone: "text-danger" },
-  MEETING_CANCELLED_BY_GUEST:    { Icon: UserX,        tone: "text-muted-foreground" },
-  MEETING_RESCHEDULE_PROPOSED:   { Icon: Clock,        tone: "text-warn" },
+const KIND_ICON: Record<NotificationKind, { Icon: LucideIcon; tone: string }> = {
+  MEETING_REQUESTED: { Icon: Clock, tone: "text-warn" },
+  MEETING_APPROVED: { Icon: CalendarCheck, tone: "text-accent" },
+  MEETING_APPROVED_RESCHEDULED: { Icon: CalendarCheck, tone: "text-accent" },
+  MEETING_REJECTED: { Icon: X, tone: "text-danger" },
+  MEETING_UPDATED: { Icon: Edit3, tone: "text-ink" },
+  MEETING_CANCELLED_BY_HOST: { Icon: CalendarOff, tone: "text-danger" },
+  MEETING_CANCELLED_BY_GUEST: { Icon: UserX, tone: "text-muted-foreground" },
+  MEETING_RESCHEDULE_PROPOSED: { Icon: CalendarClock, tone: "text-warn" },
 };
 
 export function NotificationBell() {
@@ -81,9 +81,31 @@ export function NotificationBell() {
   }, [open]);
 
   async function markAllRead() {
-    await fetch("/api/notifications", { method: "PATCH" });
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "markAllRead" }),
+    });
     setItems((xs) => xs.map((x) => ({ ...x, readAt: x.readAt ?? new Date().toISOString() })));
     setUnread(0);
+  }
+
+  async function clearOldRead() {
+    const res = await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clearReadOlderThan", days: 7 }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.deleted > 0) {
+        // Refetch
+        const r = await fetch("/api/notifications");
+        const fresh = await r.json();
+        setItems(fresh.notifications ?? []);
+        setUnread(fresh.unreadCount ?? 0);
+      }
+    }
   }
 
   async function openNotification(n: Notification) {
@@ -127,11 +149,24 @@ export function NotificationBell() {
                   : `${unread} unread`}
               </p>
             </div>
-            {unread > 0 && (
-              <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs h-7">
-                <Check className="h-3 w-3" /> Mark all read
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {items.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearOldRead}
+                  className="text-xs h-7 text-muted-foreground hover:text-ink"
+                  title="Remove read notifications older than 7 days"
+                >
+                  Clear old
+                </Button>
+              )}
+              {unread > 0 && (
+                <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs h-7">
+                  <Check className="h-3 w-3" /> Mark all read
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-[420px] overflow-y-auto">

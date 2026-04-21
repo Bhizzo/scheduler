@@ -29,6 +29,8 @@ export default async function SettingsPage() {
           max_meetings_per_day: map.max_meetings_per_day ?? "0",
           max_meetings_per_week: map.max_meetings_per_week ?? "0",
           max_meetings_per_month: map.max_meetings_per_month ?? "0",
+          notification_retention_days: map.notification_retention_days ?? "60",
+          max_notifications_per_user: map.max_notifications_per_user ?? "200",
         }}
       />
     </div>
